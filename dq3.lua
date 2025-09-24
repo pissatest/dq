@@ -1,3 +1,5 @@
+Vic
+
 --[[
     Client-Side Evasion + Hunting Script (Version 19.0 - Dynamic Smooth Lock-On)
 
@@ -422,38 +424,63 @@ local function performContinuousPositioning(target)
 end
 
 ----------------------------------------------------------------------
--- Main Loop (UPDATED)
+-- Main Loop (FIXED)
 ----------------------------------------------------------------------
 RunService.Heartbeat:Connect(function()
     if not (character and character.Parent and hrp and humanoid and humanoid.Health > 0) then
-        clearHighlights() -- Clean up highlights if character is gone
+        clearHighlights()
         return
     end
-    
+
     local projectileZones = getProjectileDangerZones()
-    
+
     -- Priority 1: EMERGENCY DODGE
     local inDanger, closestThreat = isInImmediateDanger(projectileZones)
     if inDanger then
-        -- Cancel any smooth movement if we need to dodge.
         if activeHuntTween then
             activeHuntTween:Cancel()
             activeHuntTween = nil
         end
-        
+
         local safeSpot = findBestSafePosition(projectileZones)
         if safeSpot then
             teleportTo(safeSpot, closestThreat and closestThreat.Position, true)
-            return -- Prioritize survival
+        end
+        -- FIX: do NOT return here, let targeting continue
+    end
+
+    -- Priority 2: Find and target closest enemy (new direct closest check)
+    local closestEnemy, minDist = nil, math.huge
+    local dungeon = Workspace:FindFirstChild("dungeon")
+    if dungeon then
+        for _, room in ipairs(dungeon:GetChildren()) do
+            if string.match(room.Name, "^room%d+$") or room.Name == "bossRoom" then
+                local enemyFolder = room:FindFirstChild("enemyFolder")
+                if enemyFolder then
+                    for _, enemyModel in ipairs(enemyFolder:GetChildren()) do
+                        local hrpE = enemyModel:FindFirstChild("HumanoidRootPart")
+                        local hum = enemyModel:FindFirstChild("Humanoid")
+                        if hrpE and hum and hum.Health > 0 then
+                            local dist = (hrp.Position - hrpE.Position).Magnitude
+                            if dist < minDist then
+                                minDist = dist
+                                closestEnemy = {model = enemyModel, hrp = hrpE, hum = hum, distance = dist}
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
-    
-    -- Priority 2: Find and target closest enemy
-    local enemies = getAliveEnemiesSortedByDistance() -- Use the new distance-sorted function
-    
-    updateHighlights(enemies) -- NEW: Update highlights for the top 3 enemies
-    
-    if #enemies == 0 then
+
+    -- Update highlights (top 3 still possible if you like, but here just update with closest)
+    if closestEnemy then
+        updateHighlights({closestEnemy}) 
+    else
+        clearHighlights()
+    end
+
+    if not closestEnemy then
         currentTarget = nil
         if activeHuntTween then
             activeHuntTween:Cancel()
@@ -461,12 +488,9 @@ RunService.Heartbeat:Connect(function()
         end
         return
     end
-    
-    -- Always target the closest enemy
-    currentTarget = enemies[1]
-    
-    if not currentTarget then return end
-    
+
+    currentTarget = closestEnemy
+
     -- Priority 3: Continuous tactical positioning with smooth movement
     performContinuousPositioning(currentTarget)
 end)
